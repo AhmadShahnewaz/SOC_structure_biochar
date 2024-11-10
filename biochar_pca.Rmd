@@ -1,0 +1,399 @@
+---
+title: "biochar_pca"
+author: "Shahnewaz Jim Ahmad"
+date: "2023-12-16"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Set up directory
+```{r setting directory}
+getwd()
+setwd("C:/Users/shahn/Downloads/EnvEng/Winter_23/EnvDataSci/Assignments/Thesis")
+``` 
+  
+## data and library
+```{r data and library}
+data = read.csv(file = "biochar_data_R.csv",
+                header = T,
+                sep = ";",
+                quote = "", 
+                dec = ","
+                )
+library(corrr)      #correlation analysis, mainly handle R dataframe
+library(ggcorrplot) #easy to vis correlation matrix
+library(FactoMineR) #for multivariate analysis, give access to the PCA module
+library(tidyverse)  #
+library(vip)        #plotting variable importance for prediction in a model  
+library(caret)      #for cross validation
+library(utils)      #for R documentation and package management
+library(GGally)     #specially for ggpir package in this case to visulaize scatterplot and correlation coefficient as matrices
+library(patchwork)
+
+
+str(data)
+#data = data[, c(1:3, 5, 9:10, 15, 18:19)]
+#data %>% rmarkdown::paged_table()
+#colSums(is.na(data))
+num_data <- data[,c(2:10, 14:16, 18:19)]
+num_data %>% rmarkdown::paged_table()
+
+dt <- read.csv(file = "Agg&SOC_new.csv",
+               header = TRUE,
+               sep = ",",
+               quote = "",
+               dec = "."
+               )
+dt <- dt %>% 
+  mutate(dt,
+         category = rep(c("a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o"), each = 4)
+         )
+```
+## Agg Fraction bar table
+
+```{r}
+mean_dt <- dt %>%
+  group_by(Treatments, Agg_size) %>% 
+  summarise(mean= mean(Fraction_.),
+            se = sd(Fraction_.)/sqrt(n())
+            )
+#mean_dt <- mean_dt %>%
+#  group_by(Treatments, Agg_size) %>% 
+#  mutate(sig = rep(c("a", "ab", "a", "ab", "a", "ab", "a", "ab", "a", "ab", "a", "ab", "a", "ab", "a", "ab", "a", "ab", "a", "ab"), length.out = n()))
+
+ggplot(mean_dt, aes(fill = Agg_size, y = mean, x = Treatments)) + 
+  geom_bar(position = "dodge", stat = "identity")+
+  geom_errorbar(aes(ymin = mean-se, ymax = mean+se),
+                position =  position_dodge(width = 0.9), width = 0.3)+
+  #scale_fill_brewer(palette = "BuPu")
+  scale_fill_grey(start = 0.75, end = 0.25)+
+  labs(x = "Treatments",
+       y = "The Proportions of Aggregates %")
+
+ggsave("agg.png")
+```
+
+#MWD
+
+```{r}
+sum_data <- dt %>% 
+  
+  group_by(Treatments, category) %>% 
+  summarise(sum_WD = sum(WD))
+
+mean_data <- sum_data %>% 
+  group_by(Treatments) %>% 
+  summarise(mean_WD = mean(sum_WD),
+            se_WD = sd(sum_WD)/sqrt(n())
+            )
+
+mean_data <- mean_data %>% 
+  mutate(mean_data, tuk = c("c","bc","b","ab","a") )
+
+ggplot(mean_data, aes(x = Treatments, y = mean_WD, fill = Treatments))+
+  geom_bar(stat = "identity",  color="black", fill="white")+
+  #scale_fill_grey(start = 0.75, end = 0.75)
+  geom_errorbar(aes(ymin = mean_WD-se_WD, ymax = mean_WD+se_WD),
+                position =  position_dodge(width = 0.9), width = 0.3)+
+  labs(x = "Treatments",
+       y = "Mean Weight Daiameter (mm)")+
+  geom_text(label = mean_data$tuk, nudge_y = 0.098, size = 5)
+  #geom_text(aes(label=Tukey))
+ggsave("mwd.png")
+
+sum_data_imp <- dt %>% 
+  
+  group_by(Treatments, Agg_size) %>% 
+  summarise(sum_WD_imp =sum(WD))
+
+
+ggplot(sum_data_imp, aes(x = Treatments, y = sum_WD_imp, fill = Agg_size))+
+  geom_bar(stat = "identity", position = "stack")+
+  scale_fill_grey(start = 0.75, end = 0.25)+
+  labs(x = "Treatments",
+       y = "Weighted diameter")
+
+ggsave("wd.png")
+
+```
+
+
+
+model_WD=dt$WD ~ dt$Treatments
+ANOVA=aov(model_WD, data = dt)
+Tukey <- TukeyHSD(x=ANOVA, conf.level=0.95)
+cld <- multcompLetters4(ANOVA, Tukey)
+cld_tukey <- function(Tukey){
+   letters_tukey <- multcompLetters(Tukey$`Treatments`)
+  return(letters$letters_tukey)
+}
+tukey_letters <- cld_tukey(Tukey)
+
+## SOC fraction of 2mm&0.25mm
+```{r}
+dt %>% 
+  group_by(Agg_size) %>% 
+  summarise(n = n(),
+            mean = mean(SOC_fr_g),
+            sd = sd(SOC_fr_g),
+            se = sd/sqrt(n)
+            )
+
+dt %>% 
+  group_by(Agg_size, Treatments) %>%
+  summarise(n = n(),
+            mean = mean(SOC_fr_g),
+            sd = sd(SOC_fr_g),
+            se = sd/sqrt(n),
+            .groups = "drop" # override argument (species & sex)
+            )
+
+selected_sizes <- c("2mm", "0.25mm")
+
+dt %>% 
+  filter(Agg_size %in% selected_sizes) %>%
+  ggplot(., aes(x = Treatments,
+                y = SOC_fr_g,
+                color = Treatments,
+                fill = Treatments,
+                )
+         ) +
+  geom_boxplot(alpha = 0.3)+
+  stat_summary(fun = mean, geom = "point", shape = 17, size = 3)+
+  facet_wrap(~Agg_size)+
+  labs(x = "Treatments",
+       y = "Soil Organic Carbon (SOC) in g")
+
+ggsave("soc.png")
+
+#add tukey
+#https://r-graph-gallery.com/84-tukey-test.html
+
+```
+## MBC fraction of 2mm&0.25mm
+```{r}
+dt %>% 
+  group_by(Agg_size) %>% 
+  summarise(n_mbc = n(),
+            mean_mbc = mean(MBC_fr_g),
+            sd_mbc = sd(SOC_fr_g),
+            se_mbc = sd_mbc/sqrt(n_mbc)
+            )
+
+dt %>% 
+  group_by(Agg_size, Treatments) %>%
+  summarise(n_mbc = n(),
+            mean_mbc = mean(MBC_fr_g),
+            sd_mbc = sd(MBC_fr_g),
+            se_mbc = sd_mbc/sqrt(n_mbc),
+            .groups = "drop" # override argument (species & sex)
+            )
+
+selected_sizes_mbc <- c("2mm", "0.25mm")
+
+dt %>% 
+  filter(Agg_size %in% selected_sizes_mbc) %>%
+  ggplot(., aes(x = Treatments,
+                y = MBC_fr_g,
+                color = Treatments,
+                fill = Treatments,
+                )
+         ) +
+  geom_boxplot(alpha = 0.3)+
+  stat_summary(fun = mean, geom = "point", shape = 17, size = 3)+
+  facet_wrap(~Agg_size)+
+  labs(x = "Treatments",
+       y = "Microbial biomass (MBC) in g")
+
+ggsave("mbc.png")
+
+#add tukey
+#https://r-graph-gallery.com/84-tukey-test.html
+
+```
+
+## Train test by 80/20
+```{r Train test split data}
+
+# Assuming your data frame is named 'your_data_frame' and you want to remove 'column_to_remove'
+#data <- data[, -which(names(data) == "Treatment")]
+
+set.seed(123)
+dt <- dt[c(1:2, 4:6)]
+
+train_id <- sample(1:nrow(dt), size = nrow(dt)*0.8)
+test_id <- setdiff(1:nrow(dt), train_id)
+head(train_id)
+
+# split the train test data
+data_train <- dt %>% slice(train_id) 
+data_test <- dt %>% slice(test_id)
+
+#slice function is for selecting entire row
+#select function is for selecting entire column
+
+#model
+model_lm <- lm(WD ~., data_train)
+summary(model_lm)
+
+
+```
+
+## Train data with cross validation 
+```{r}
+# Example of 5-fold cross-validation
+set.seed(123)
+
+
+# Specify the control parameters for cross-validation
+ctrl <- trainControl(method = "cv", number = 5)
+
+# Train a model (e.g., linear regression) using k-fold cross-validation
+model_cross <- train(WD ~ ., data = dt, method = "lm", trControl = ctrl)
+
+# View the results
+print(model_cross)
+summary(model_cross)
+```
+
+# Assess R2 values, visualize prediction vs observation and finally variable importance
+```{r}
+#prediction of test data 
+predict_lm        <- predict(model_lm, data_test)
+predict_cross     <- predict(model_cross, data_test)
+
+plot(predict_lm, data_test$WD)
+plot(predict_cross, data_test$WD)
+
+#R2 for multiple linear model
+cor(predict.lm, data_test$WD)^2    #R2 for multiple linear model
+cor(predict.m, data_test$WD)^2  
+
+```  
+## visualize the prediction vs observation
+
+```{r}
+test_result <- data.frame(
+  observation = data_test$WD,
+  predict_lm = predict_lm,
+  predict_cross = predict_cross
+  )
+#library(GGally)
+test_result %>% 
+  ggpairs()
+
+ggsave("ml.png")
+```  
+
+## visualize the variable importance
+
+```{r}
+a <- vip(model_lm) + labs(title = "a. multiple linear model")
+b <- vip(model_cross) + labs(title = "b. cross validation model")
+a + b
+
+ggsave("var_imp.png")
+
+
+
+```
+c <- partial(model_lm, pred.var = "Treatments") %>% autoplot() + labs(title = "c. multiple linear model")
+d <- partial(model_cross, pred.var = "Treatments") %>% autoplot() + labs(title = "d. cross validation model")
+
+e <- partial(model_lm, pred.var = c("Treatments", "Agg_size")) %>% autoplot() + labs(title = "e. multiple linear model")
+f <- partial(model_cross, pred.var = c("Treatments", "Agg|_size")) %>% autoplot() + labs(title = "f. cross validation model")e <- partial(model_lm, pred.var = c("WD_mm", "SOC_g")) %>% autoplot() + labs(title = "e. multiple linear model")
+
+
+## normalized data
+```{r normalized data}
+#colMeans(num_data)
+norm_data <- (scale(num_data))
+#head(norm_data)
+```  
+## compute the corrleation matrix  
+```{r corr matrix}
+corr_matrix <- cor(norm_data)
+ggcorrplot(corr_matrix)
+```  
+The higher the value, the most positively correlated the two variables are.
+The closer the value to -1, the most negatively correlated they are.  
+## applying pca  
+```{r}
+pca_data <- princomp(corr_matrix)
+summary(pca_data)
+```
+  
+Each component explains a percentage of the total variance in the data set. In the Cumulative Proportion section, the first principal component explains almost 77% of the total variance. This implies that almost two-thirds of the data in the set of 9 variables can be represented by just the first principal component. The second one explains 12.08% of the total variance. 
+
+The cumulative proportion of Comp.1 and Comp.2 explains nearly 89% of the total variance. This means that the first two principal components can accurately represent the data. 
+
+It’s great to have the first two components, but what do they really mean? 
+
+This can be answered by exploring how they relate to each column using the loadings of each principal component. 
+
+```{r relation of two component1&2}
+pca_data$loadings[, 1:2]
+```
+  
+The loading matrix shows that the first principal component has high positive values for both mwd, soc, Na, Mg, S, Fe_P, MBC. However, the values for P, Fe_DCB are relatively negative. This suggests that soil with a higher aggregation Carbon, Na, Mg, S, Fe_P are excess, while soil with a lower aggregation are in deficit of these minerals.
+
+When it comes to the second principal component, it has high negative values for fish, starchy foods, and fruits and vegetables.  This implies that the underlying countries’ diets are highly influenced by their location, such as coastal regions for fish, and inland regions for a diet rich in vegetables and potatoes.
+
+```{r}
+#install.packages("factoextra")
+library(factoextra)
+fviz_eig(pca_data, addlabels = TRUE)
+
+ggsave("scree.png")
+```
+  
+```{r}
+# Graph of the variables
+fviz_pca_var(pca_data, col.var = "black")
+fviz_pca_var(pca_data, col.var = "cos2",
+            gradient.cols = c("#FF004D", "#38E54D", "#4942E4"),
+            repel = TRUE)
+
+ggsave("pca.png")
+
+```
+fviz_pca_ind(pca_data,
+             geom.ind = "point", # show points only (nbut not "text")
+             col.ind = data$Treatment, # color by groups
+             palette = c("#00AFBB", "#E7B800", "#FC4E07"),
+             addEllipses = TRUE, # Concentration ellipses
+             legend.title = "Groups"
+             )
+
+```{r}
+# Create the dataset
+data <- data.frame(
+  category = rep(c("a", "a", "a", "b", "b", "b"), each = 3),
+  fruit = rep(c("apple", "orange", "banana"), times = 2 * 3),  # Corrected replication
+  value = c(2, 10, 30, 3, 11, 31, 4, 14, 40, 5, 15, 41)
+)
+
+# Rest of the code remains the same
+# Step 2: Sum up values for each group
+sum_data <- data %>%
+  group_by(category, fruit) %>%
+  summarize(sum_value = sum(value))
+
+# Step 3: Calculate the average of two 3a and two 3b
+average_data <- sum_data %>%
+  group_by(category) %>%
+  summarize(average_value = mean(sum_value))
+
+# Step 4: Plot the average values
+library(ggplot2)
+
+ggplot(average_data, aes(x = category, y = average_value, fill = category)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Average Values of 3a and 3b", x = "Category", y = "Average Value") +
+  theme_minimal()
+
+
+```
