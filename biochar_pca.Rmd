@@ -340,7 +340,6 @@ pca_data$loadings[, 1:2]
   
 The loading matrix shows that the first principal component has high positive values for both mwd, soc, Na, Mg, S, Fe_P, MBC. However, the values for P, Fe_DCB are relatively negative. This suggests that soil with a higher aggregation Carbon, Na, Mg, S, Fe_P are excess, while soil with a lower aggregation are in deficit of these minerals.
 
-When it comes to the second principal component, it has high negative values for fish, starchy foods, and fruits and vegetables.  This implies that the underlying countries’ diets are highly influenced by their location, such as coastal regions for fish, and inland regions for a diet rich in vegetables and potatoes.
 
 ```{r}
 #install.packages("factoextra")
